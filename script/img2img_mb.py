@@ -17,7 +17,7 @@ def make_argparse():
     parser.add_argument('--width', type=int,default=512)
     parser.add_argument('--height', type=int,default=512)
     parser.add_argument('--seed', type=int,default=1999)
-    parser.add_argument('--save_path',type=str,default="/root/autodl-tmp/lijia/output/magicbrush")
+    parser.add_argument('--save_path',type=str,default="/root/autodl-tmp/lijia/output/magicbrush_10.0")
     parser.add_argument('--image_dir',type=str,default="/root/autodl-tmp/lijia/data/test/images")
     parser.add_argument('--config_path',type=str,default="/root/autodl-tmp/lijia/data/test/global_descriptions.json")
 
@@ -27,13 +27,19 @@ def make_argparse():
     return args
 
 def load_model(ckpt_name):
-    pipe=StableDiffusionImg2ImgPipeline.from_pretrained(ckpt_name)
+    pipe=StableDiffusionImg2ImgPipeline.from_pretrained(ckpt_name,height=512,width=512)
     print("load model!")
     return pipe
 
 def read_image(image_path,pipe):
     image=load_image(image_path)
     return image
+
+def is_string_empty(input_string):
+    if input_string.strip() == '':
+        return True
+    else:
+        return False
 
 def main():
     args=make_argparse()
@@ -52,6 +58,7 @@ def main():
     image_list=dataset.image_names
     for image_name in tqdm(image_list):
         image=load_image(os.path.join(args.image_dir,image_name,image_name+"-input.png"))
+        image = image.resize((512,512))
         image_feature= pipe.image_processor.preprocess(image).to(device)
 
         caption=dataset.get_selfcaption(image_name) # 加载原有的
@@ -68,7 +75,11 @@ def main():
             image_feature, latent_timestep, args.bz, 1, prompt_embeddings.dtype, device)
         
         do_classifier_free_guidance=7.5
-        decrease_guidance=7.5
+        if is_string_empty(decrease_content):
+            decrease_guidance=10.0
+        else:
+            decrease_guidance=10.0
+            
         with pipe.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 # expand the latents if we are doing classifier free guidance
@@ -76,36 +87,49 @@ def main():
                     latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                     latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
 
-                    # 预测一个噪声
-                    noise_pred = pipe.unet(
+                    # predict the noise residual
+                    noise_pred= pipe.unet(
                         latent_model_input,
                         t,
                         encoder_hidden_states=prompt_embeddings.to(device),
                         return_dict=False,
                     )[0]
 
-                    latent_model_input_p = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                    latent_model_input_p = pipe.scheduler.scale_model_input(latent_model_input, t)
 
-                    # 
-                    noise_pred_p = pipe.unet(
-                        latent_model_input_p,
+                    # predict the noise residual
+                    noise_pred_decrease = pipe.unet(
+                        latent_model_input,
                         t,
                         encoder_hidden_states=decrease_embeddings.to(device),
                         return_dict=False,
                     )[0]
-
                     # perform guidance
                     if do_classifier_free_guidance:
                         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                        noise_pred_uncond_po, noise_pred_text_po = noise_pred_p.chunk(2)
-                        noise_pred = noise_pred_uncond -decrease_guidance*(noise_pred_text - noise_pred_uncond)+ do_classifier_free_guidance * (noise_pred_text_po - noise_pred_uncond_po)
+                        noise_pred_uncond_decrease, noise_pred_text_decrease= noise_pred_decrease.chunk(2)
+                        noise_pred_summary = noise_pred_uncond +do_classifier_free_guidance*(noise_pred_text - noise_pred_uncond)- decrease_guidance * (noise_pred_text_decrease - noise_pred_uncond_decrease)
                         # noise_pred = noise_pred_uncond + do_classifier_free_guidance * (noise_pred_text_po - noise_pred_uncond_po)
 
                     # compute the previous noisy sample x_t -> x_t-1
-                    latents = pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                    # if decrease_guidance:
+                    # # condition
+                    #     noise_pred = pipe.unet(
+                    #         latent_model_input,
+                    #         t,
+                    #         encoder_hidden_states=decrease_embeddings.to(device),
+                    #         return_dict=False,
+                    #     )[0]
+                    #     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    #     noise_pred = noise_pred_uncond_po -decrease_guidance*(noise_pred_text - noise_pred_uncond)+ do_classifier_free_guidance * (noise_pred_text_po - noise_pred_uncond_po)
+                    #     # noise_pred = noise_pred_uncond + do_classifier_free_guidance * (noise_pred_text_po - noise_pred_uncond_po)
+                    # else:
+                    #     noise_pred = noise_pred_uncond + do_classifier_free_guidance * (noise_pred_text_po - noise_pred_uncond_po)
+
+                    latents = pipe.scheduler.step(noise_pred_summary, t, latents, return_dict=False)[0]
             image_new = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
             result=pipe.image_processor.postprocess(image_new.detach())[0]
             result.save(os.path.join(args.save_path,image_name+".png"))
+
+
             
 main()

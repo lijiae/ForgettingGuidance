@@ -18,9 +18,9 @@ class TreeLocate():
     
     # def get_children(self, chunk):
     #     texts = []
-    #     for child in chunk.root.children:
-    #         texts.extend(self.get_children(child))
     #     texts.append(chunk.text)
+    #     for child in chunk.children:
+    #         texts.extend(self.get_children(child))
     #     return texts
 
     def get_one_chunk(self,chunks,name):
@@ -72,9 +72,12 @@ class TreeLocate():
                 if old.root.text in root_update_nn:
                     root_index=self.get_one_chunk(root_update,old.root.text)
                     common_chunk=root_update[root_index]
+                    # 更新属性
                     old_children=self.get_children(old)
                     update_children=self.get_children(common_chunk)
-                    decrease_list+=list(set(old_children) - set(update_children))
+                    decrease_list+=list(set(old_children)- set(update_children))
+                    # decrease_list+=[x for x in old_children if x not in update_children]
+
                 else:
                     decrease_list.append(old.text)
         
@@ -117,5 +120,5 @@ class TreeLocate():
         return decrease_list
 
 # nlp=TreeLocate()
-# result=nlp.locate_node("A shocked multi-colored cat standing on a luggage bag.","A happy multi-colored cat standing on a luggage bag.")
+# result=nlp.locate_node("A seat under a mirror onboard a train, next to a cluttered counter.","A cat lounges on a seat under a mirror onboard a train, next to a cluttered counter.")
 # print(result)

@@ -5,6 +5,8 @@ import torch
 from PIL import Image
 import requests
 import torch
+import json
+import os
 
 
 def load_model(device="cuda"):
@@ -22,11 +24,11 @@ def load_model(device="cuda"):
 
     return model,image_processor, tokenizer
 
-def get_caption_from_image(model,image_processor, tokenizer,device="cuda"):
+def get_caption_from_image(model,image_processor,tokenizer,image_path,device="cuda"):
     """
     Step 1: Load images
     """
-    query_image = Image.open("/root/autodl-tmp/lijia/images/car/car_4.jpg")
+    query_image = Image.open(image_path)
 
     """
     Step 2: Preprocessing images
@@ -47,7 +49,7 @@ def get_caption_from_image(model,image_processor, tokenizer,device="cuda"):
     """
     tokenizer.padding_side = "left" # For generation padding tokens should be on the left
     lang_x = tokenizer(
-        ["<image>An image of"],
+        ["<image>"],
         return_tensors="pt",
     )
 
@@ -64,3 +66,45 @@ def get_caption_from_image(model,image_processor, tokenizer,device="cuda"):
 
     # print("Generated text: ", tokenizer.decode(generated_text[0]))
     return tokenizer.decode(generated_text[0])
+
+def read_json_file(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    return data
+
+def main():
+    image_dir="/root/autodl-tmp/data/imagic-editing.github.io/tedbench/originals"
+    path="/root/autodl-tmp/data/imagic-editing.github.io/tedbench/input_list.json"
+    all_images=read_json_file(path)
+
+    # load model
+    model,image_processor, tokenizer=load_model()
+
+    result=[]
+
+    for d in all_images:
+        name=d["img_name"]
+        prompt=d["target_text"]
+        image_path=os.path.join(image_dir,name)
+
+        caption=get_caption_from_image(model,image_processor, tokenizer,image_path)
+        print(caption)
+
+        result.append({
+            "img_name":name,
+            "target_text":prompt,
+            "caption":caption
+        })
+
+        # 设置保存的文件路径
+    file_path = '/root/autodl-tmp/data/imagic-editing.github.io/tedbench/test_list.json'
+
+    # 将列表保存为 JSON 文件
+    with open(file_path, 'w') as f:
+        json.dump(result, f)
+        
+    print("JSON 文件保存成功！")
+
+
+
+main()
